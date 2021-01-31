@@ -14,14 +14,46 @@ outupt_path = "output/requests.json"
 
 
 class Addon(object):
+    def __init__(self):
+        dir = os.path.dirname(outupt_path)
+        if not os.path.isdir(dir):
+            os.makedirs(dir)
+        self.output = open(outupt_path, 'a')
+
     def request(self, flow: HTTPFlow):
+        # do something in response
         pass
 
     def response(self, flow: HTTPFlow):
-        pass
+        if not ('aws' in flow.request.url or 'amazon' in flow.request.url):
+            return
+
+        resp_content_type = flow.response.headers.get('Content-Type')
+        if not resp_content_type:
+            return
+        elif not 'json' in resp_content_type:
+            return
+
+        try:
+            flow_data = {
+                "request": {
+                    "content_type": flow.response.headers.get('Content-Type'),
+                    "url": flow.request.url,
+                    "content": flow.request.content.decode(),
+                },
+                "response": {
+                    "content_type": flow.response.headers.get('Content-Type'),
+                    "status_code": flow.response.status_code,
+                    "content": flow.response.content.decode(),
+                }
+            }
+        except UnicodeDecodeError:
+            pass
+        self.output.write(json.dumps(flow_data))
+        self.output.flush()
 
     def done(self):
-        pass
+        self.output.close()
 
 
 class ProxyMaster(DumpMaster):

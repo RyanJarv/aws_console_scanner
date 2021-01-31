@@ -9,10 +9,3 @@ services:
     volumes:
       - .:/opt/project
       - ~/.mitmproxy:/root/.mitmproxy
-  akita:
-    image: "akitasoftware/cli:latest"
-    environment:
-     - AKITA_API_KEY_ID
-     - AKITA_API_KEY_SECRET
-    network_mode: "service:proxy"
-    command: learn --service ${SERVICE} --port 8080
