@@ -15,7 +15,8 @@ WORKDIR /app
 COPY requirements.txt requirements.txt
 RUN pip install -r requirements.txt
 
-WORKDIR /opt/project
 COPY ./ ./
 
-ENTRYPOINT "/usr/bin/python -m aws_console_scanner"
+RUN pip install .
+
+ENTRYPOINT ["python", "-m", "aws_console_scanner"]
