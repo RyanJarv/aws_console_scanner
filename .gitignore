@@ -1,4 +1,6 @@
 output
 .idea
 venv
+*.sw?
 **/__pycache__
+requirements.txt
