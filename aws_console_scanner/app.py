@@ -1,68 +1,100 @@
 import http
 import json
+import logging
 import os
-from pprint import pprint as pp
-from typing import List, re
+import sys
+from threading import Thread
+from queue import Queue
+from typing import TextIO
 
+from mitmproxy import ctx
+from mitmproxy.addonmanager import Loader
 from mitmproxy.http import HTTPFlow
 from mitmproxy.options import Options
 from mitmproxy.proxy.config import ProxyConfig
 from mitmproxy.proxy.server import ProxyServer
 from mitmproxy.tools.dump import DumpMaster
 
-outupt_path = "output/requests.json"
-
 
 class Addon(object):
     def __init__(self):
-        dir = os.path.dirname(outupt_path)
-        if not os.path.isdir(dir):
-            os.makedirs(dir)
-        self.output = open(outupt_path, 'a')
+        self.queue = Queue()
+        self.output: TextIO = None
+
+    def load(self, loader: Loader):
+        loader.add_option('json_output_file', str, 'output/dump.json', 'Output destination: path to a file or URL.')
+
+    def configure(self, _):
+        dest_dir = os.path.dirname(os.path.join(os.getcwd(), ctx.options.json_output_file))
+        if not os.path.isdir(dest_dir):
+            os.makedirs(dest_dir)
+        self.output = open(ctx.options.json_output_file, 'a')
+
+        t = Thread(target=self.worker)
+        t.start()
 
     def request(self, flow: HTTPFlow):
-        # do something in response
         pass
 
     def response(self, flow: HTTPFlow):
-        if not ('aws' in flow.request.url or 'amazon' in flow.request.url):
+        self.queue.put(flow.copy())
+
+    def worker(self):
+        while True:
+            try:
+                frame = self.queue.get()
+                self.dump(frame)
+                self.queue.task_done()
+            except Exception as e:
+                logging.exception("[ERROR]")
+
+    def dump(self, flow: HTTPFlow):
+        host = flow.request.host
+        if not ('aws' in host or 'amazon' in host):
             return
 
-        resp_content_type = flow.response.headers.get('Content-Type')
+        hdrs = flow.response.headers
+        resp_content_type = hdrs.get('Content-Type')
         if not resp_content_type:
             return
-        elif not 'json' in resp_content_type:
+        elif 'json' not in resp_content_type:
             return
 
         try:
             flow_data = {
-                "request": {
-                    "content_type": flow.response.headers.get('Content-Type'),
-                    "url": flow.request.url,
-                    "content": flow.request.content.decode(),
-                },
-                "response": {
-                    "content_type": flow.response.headers.get('Content-Type'),
-                    "status_code": flow.response.status_code,
-                    "content": flow.response.content.decode(),
-                }
+                "req.content_type": hdrs.get('Content-Type'),
+                "req.host": flow.request.host,
+                "req.path": flow.request.path,
+                "req.content": flow.request.content,
+                "resp.content_type": hdrs.get('Content-Type'),
+                "resp.status_code": flow.response.status_code,
+                "resp.content": flow.response.content,
             }
-        except UnicodeDecodeError:
-            pass
-        self.output.write(json.dumps(flow_data))
+        except UnicodeDecodeError as e:
+            print("[WARN] {}".format(str(e)))
+            return
+
+        self.output.write(json.dumps(flow_data, default=decode_bytes))
         self.output.flush()
 
     def done(self):
         self.output.close()
 
 
+def decode_bytes(b: bytes):
+    try:
+        return b.decode()
+    except Exception as e:
+        return TypeError(e)
+
+
 class ProxyMaster(DumpMaster):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-    def run(self):
+    def run(self, **kwargs):
         try:
-            DumpMaster.run(self)
+            DumpMaster.run(self, **kwargs)
         except KeyboardInterrupt:
             self.shutdown()
 
@@ -75,10 +107,11 @@ def start_proxy(host, port):
         listen_host=host,
         listen_port=port,
         http2=True,
-        cert_passphrase=paswd
+        cert_passphrase=paswd,
     )
     config = ProxyConfig(options)
-    master = ProxyMaster(options, with_termlog=True, with_dumper=False)
-    master.server = ProxyServer(config)
+    master = ProxyMaster(options, with_termlog=True, with_dumper=True)
     master.addons.add(Addon())
+    master.server = ProxyServer(config)
+    master.options.update(json_output_file='output/dump.json')
     master.run()
