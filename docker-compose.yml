@@ -6,13 +6,15 @@ services:
     image: aws_console_scanner
     ports:
       - "8080:8080"
+    environment:
+      - CERT_PASSWORD
     volumes:
       - .:/opt/project
       - ~/.mitmproxy:/root/.mitmproxy
   akita:
     image: "akitasoftware/cli:latest"
     environment:
-     - AKITA_API_KEY_ID
-     - AKITA_API_KEY_SECRET
+      - AKITA_API_KEY_ID
+      - AKITA_API_KEY_SECRET
     network_mode: "service:proxy"
-    command: learn --service ${SERVICE} --port 8080
+    command: learn --service ${AKITA_SERVICE} --port 8080
